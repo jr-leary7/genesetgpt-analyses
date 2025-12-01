@@ -1,0 +1,22 @@
+[project]
+name = "genesetgpt-analyses"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "biopython>=1.86",
+    "cellrank>=2.0.7",
+    "dotenv>=0.9.9",
+    "marimo>=0.18.1",
+    "openai>=2.8.1",
+    "pandarallel>=1.6.5",
+    "pybiomart>=0.2.0",
+    "python-igraph>=1.0.0",
+    "scanpy>=1.11.5",
+    "scikit-misc>=0.5.2",
+    "session-info>=1.0.1",
+    "squidpy>=1.6.5",
+    "unipressed>=1.4.0",
+    "xmltodict>=1.0.2",
+]
