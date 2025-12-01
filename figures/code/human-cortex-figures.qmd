@@ -104,7 +104,7 @@ import squidpy as sq
 ad_brain <- read_h5ad("../../data/human-brain-spatial/ad_brain.h5ad")
 ```
 
-We extract and un-normalize the counts matrix, then create a basic `Seurat` object. 
+
 
 ```{r}
 counts_mtx <- as.matrix(ad_brain$layers["counts"])
@@ -117,12 +117,26 @@ seu_brain <- CreateSeuratObject(t(counts_mtx),
 seu_brain@project.name <- "cortex"
 ```
 
+```{r}
+pca_embed <- ad_brain$obsm$X_pca
+rownames(pca_embed) <- ad_brain$obs_names
+colnames(pca_embed) <- paste0("PC_", seq(50))
+pca_embed <- CreateDimReducObject(pca_embed, 
+                                  assay = "Spatial", 
+                                  key = "pca_", 
+                                  global = TRUE)
+seu_brain@reductions$pca <- pca_embed
+```
+
 
 ```{r}
 umap_embed <- ad_brain$obsm$X_umap
 rownames(umap_embed) <- ad_brain$obs_names
 colnames(umap_embed) <- c("UMAP_1", "UMAP_2")
-umap_embed <- CreateDimReducObject(umap_embed, assay = "Spatial", key = "umap_", global = TRUE)
+umap_embed <- CreateDimReducObject(umap_embed, 
+                                   assay = "Spatial", 
+                                   key = "umap_", 
+                                   global = TRUE)
 seu_brain@reductions$umap <- umap_embed
 ```
 
@@ -152,6 +166,9 @@ seu_brain@images[["cortex"]] <- new(Class = "VisiumV1",
 ```
 
 ```{r}
+#| fig-width: 3.3
+#| fig-height: 3
+#| fig-dpi: 200
 p0 <- plotSpatialAttributes(seu_brain, 
                             attribute.plot = "leiden", 
                             pt.size = 1, 
@@ -163,17 +180,19 @@ p0
 ```
 
 ```{r}
-ggsave("brain_spatial_scatter.png", 
+ggsave("brain_spatial_scatter.pdf", 
        plot = p0, 
-       device = "png", 
-       path = "../png/",
+       device = "pdf", 
+       path = "../pdf/",
        width = 3.3, 
        height = 3, 
-       units = "in", 
-       dpi = 320)
+       units = "in")
 ```
 
 ```{r}
+#| fig-width: 4
+#| fig-height: 3
+#| fig-dpi: 200
 umap_df <- data.frame(umap1 = seu_brain@reductions$umap@cell.embeddings[, 1], 
                       umap2 = seu_brain@reductions$umap@cell.embeddings[, 2], 
                       leiden = seu_brain$leiden)
@@ -187,12 +206,48 @@ p1
 ```
 
 ```{r}
-ggsave("brain_umap_scatter.png", 
+ggsave("brain_umap_scatter.pdf", 
        plot = p1, 
-       device = "png", 
-       path = "../png/",
+       device = "pdf", 
+       path = "../pdf/",
        width = 4, 
        height = 3, 
-       units = "in", 
-       dpi = 320)
+       units = "in")
+```
+
+```{r}
+#| fig-width: 3
+#| fig-height: 4
+#| fig-dpi: 200
+svg_clust_df <- data.frame(svg_cluster0 = seu_brain$svg_cluster0, 
+                           svg_cluster1 = seu_brain$svg_cluster1) %>% 
+                bind_cols(GetTissueCoordinates(seu_brain))
+p2 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster0)) + 
+      geom_point(size = 0.75, stroke = 0, alpha = 1) + 
+      scale_y_continuous(transform = "reverse") + 
+      scale_color_gradientn(colors = palette_heatmap) + 
+      labs(x = "Spatial 1", 
+           y = "Spatial 2", 
+           color = "Module 0") + 
+      theme_bayesVG(base.size = 8, spatial = TRUE)
+p3 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster1)) + 
+      geom_point(size = 0.75, stroke = 0, alpha = 1) + 
+      scale_y_continuous(transform = "reverse") + 
+      scale_color_gradientn(colors = palette_heatmap) + 
+      labs(x = "Spatial 1", 
+           y = "Spatial 2", 
+           color = "Module 1") + 
+      theme_bayesVG(base.size = 8, spatial = TRUE)
+p4 <- (p2 / p3) + plot_layout(axes = "collect")
+p4
+```
+
+```{r}
+ggsave("brain_svg_module_scatter.pdf", 
+       plot = p4, 
+       device = "pdf", 
+       path = "../pdf/",
+       width = 3, 
+       height = 4, 
+       units = "in")
 ```
