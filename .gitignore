@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# extras 
+.pybiomart.sqlite
+*.Rhistory
+*.DS_Store
+*.h5ad
+*.Rds
