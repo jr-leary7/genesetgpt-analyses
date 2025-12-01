@@ -1,0 +1,198 @@
+---
+title: "Dissertaion GPT Figure"
+subtitle: "Bacher Group" 
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| echo: false
+#| include: false
+#| message: false
+#| warning: false
+knitr::opts_chunk$set(comment = NA)
+options(future.globals.maxSize = 1e20)
+reticulate::use_virtualenv("../../.venv")
+```
+
+# Libraries 
+
+We begin by reading in some necessary libraries for our analysis. 
+
+```{r}
+#| message: false
+#| warning: false
+#| results: hide
+library(dplyr)
+library(hdf5r)
+library(Seurat)
+library(bayesVG)
+library(ggplot2)
+library(anndata)
+library(patchwork)
+library(reticulate)
+rename <- dplyr::rename
+```
+
+# Visualization tools
+
+Next, we define a set of color palettes to be used for our plots. 
+
+```{r}
+palette_domain <- paletteer::paletteer_d("ggsci::nrc_npg")
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Hiroshige", direction = -1)
+```
+
+We also define a custom legend guide to be used when plotting UMAP embeddings. 
+
+```{r}
+guide_umap <- function(key.size = 4) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size,
+                                                                    alpha = 1, 
+                                                                    stroke = 1)))
+}
+```
+
+# Data 
+
+## Python pre-processing
+
+### Libraries
+
+```{python}
+#| eval: false
+import numpy as np
+import scanpy as sc
+import pandas as pd
+import anndata as ad
+import squidpy as sq
+```
+
+### Load data 
+
+```{r}
+ad_brain <- read_h5ad("../../data/human-brain-spatial/ad_brain.h5ad")
+```
+
+We extract and un-normalize the counts matrix, then create a basic `Seurat` object. 
+
+```{r}
+counts_mtx <- as.matrix(ad_brain$layers["counts"])
+counts_mtx <- as(counts_mtx, "CsparseMatrix")
+seu_brain <- CreateSeuratObject(t(counts_mtx), 
+                                assay = "Spatial",
+                                meta.data = as.data.frame(ad_brain$obs),
+                                min.cells = 0, 
+                                min.features = 0)
+seu_brain@project.name <- "cortex"
+```
+
+
+```{r}
+umap_embed <- ad_brain$obsm$X_umap
+rownames(umap_embed) <- ad_brain$obs_names
+colnames(umap_embed) <- c("UMAP_1", "UMAP_2")
+umap_embed <- CreateDimReducObject(umap_embed, assay = "Spatial", key = "umap_", global = TRUE)
+seu_brain@reductions$umap <- umap_embed
+```
+
+
+Now for the tricky part - adding in the image data. 
+
+```{r}
+coord_df <- data.frame(imagecol = ad_brain$obsm$spatial[, 1], 
+                       imagerow = ad_brain$obsm$spatial[, 2])
+rownames(coord_df) = ad_brain$obs_names
+img_array <- ad_brain$uns$spatial$V1_Human_Brain_Section_1$images$lowres
+fiducial_diameter <- ad_brain$uns$spatial$V1_Human_Brain_Section_1$scalefactors$fiducial_diameter_fullres
+lores_sf <- ad_brain$uns$spatial$V1_Human_Brain_Section_1$scalefactors$tissue_lowres_scalef
+spot_radius <- (fiducial_diameter * lores_sf) / max(dim(img_array))
+hires_sf <- ad_brain$uns$spatial$V1_Human_Brain_Section_1$scalefactors$tissue_hires_scalef
+spot_diameter <- ad_brain$uns$spatial$V1_Human_Brain_Section_1$scalefactors$spot_diameter_fullres
+seu_brain@images[["cortex"]] <- new(Class = "VisiumV1",
+                                    assay = "Spatial", 
+                                    image = img_array, 
+                                    key = "image_", 
+                                    coordinates = coord_df, 
+                                    scale.factors = scalefactors(spot = spot_diameter, 
+                                                                 fiducial = fiducial_diameter, 
+                                                                 hires = hires_sf, 
+                                                                 lowres = lores_sf), 
+                                    spot.radius = spot_radius)
+```
+
+```{r}
+p0 <- plotSpatialAttributes(seu_brain, 
+                            attribute.plot = "leiden", 
+                            pt.size = 1, 
+                            color.palette = palette_domain) + 
+      labs(color = "Leiden") + 
+      theme_bayesVG(base.size = 8, spatial = TRUE) + 
+      guide_umap(key.size = 3)
+p0
+```
+
+```{r}
+ggsave("brain_spatial_scatter.png", 
+       plot = p0, 
+       device = "png", 
+       path = "../png/",
+       width = 3.3, 
+       height = 3, 
+       units = "in", 
+       dpi = 320)
+```
+
+```{r}
+umap_df <- data.frame(umap1 = seu_brain@reductions$umap@cell.embeddings[, 1], 
+                      umap2 = seu_brain@reductions$umap@cell.embeddings[, 2], 
+                      leiden = seu_brain$leiden)
+p1 <- ggplot(umap_df, aes(x = umap1, y = umap2, color = leiden)) + 
+      geom_point(size = 1.5, alpha = 0.8, stroke = 0) + 
+      scale_color_manual(values = palette_domain) + 
+      labs(x = "UMAP 1", y = "UMAP 2") + 
+      theme_bayesVG(base.size = 8, umap = TRUE) + 
+      theme(legend.position = "none")
+p1
+```
+
+```{r}
+ggsave("brain_umap_scatter.png", 
+       plot = p1, 
+       device = "png", 
+       path = "../png/",
+       width = 4, 
+       height = 3, 
+       units = "in", 
+       dpi = 320)
+```
