@@ -212,3 +212,4 @@ __marimo__/
 *.DS_Store
 *.h5ad
 *.Rds
+*.ai
