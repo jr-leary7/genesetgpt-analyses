@@ -115,6 +115,9 @@ seu_brain <- CreateSeuratObject(t(counts_mtx),
                                 min.cells = 0, 
                                 min.features = 0)
 seu_brain@project.name <- "cortex"
+seu_brain <- NormalizeData(seu_brain, 
+                           assay = "Spatial", 
+                           verbose = FALSE)
 ```
 
 ```{r}
@@ -216,13 +219,56 @@ ggsave("brain_umap_scatter.pdf",
 ```
 
 ```{r}
+#| fig-width: 4.3
+#| fig-height: 4
+#| fig-dpi: 200
+moran_df <- ad_brain$uns$moranI
+top4_svgs <- slice_head(moran_df, n = 4) %>% 
+             rownames()
+expr_df <- GetAssayData(seu_brain, assay = "Spatial", layer = "data")[top4_svgs, ] %>% 
+           t() %>% 
+           as.data.frame() %>% 
+           mutate(spot = rownames(.), 
+                  x = GetTissueCoordinates(seu_brain)[, 1], 
+                  y = GetTissueCoordinates(seu_brain)[, 2],
+                  .before = 1) %>% 
+           tidyr::pivot_longer(cols = !c(spot, x, y),  
+                               names_to = "gene", 
+                               values_to = "gene_expression") %>% 
+           mutate(gene_expression = coop::scaler(gene_expression))
+p2 <- ggplot(expr_df, aes(x = x, y = y, color = gene_expression)) + 
+      facet_wrap(~gene, nrow = 2, ncol = 2) + 
+      geom_point(size = 0.75, stroke = 0) + 
+      scale_y_continuous(transform = "reverse") + 
+      scale_color_gradientn(colors = palette_heatmap) + 
+      labs(x = "Spatial 1", 
+           y = "Spatial 2", 
+           color = "Scaled\nExpression") + 
+      theme_bayesVG(base.size = 8, spatial = TRUE) +
+      theme(strip.text = element_text(face = "italic"), 
+            strip.clip = "on", 
+            strip.background = element_rect(linewidth = 2 * theme_bayesVG()$line$linewidth))
+p2
+```
+
+```{r}
+ggsave("brain_svg_expression_scatter.pdf", 
+       plot = p2, 
+       device = "pdf", 
+       path = "../pdf/",
+       width = 4.3, 
+       height = 4, 
+       units = "in")
+```
+
+```{r}
 #| fig-width: 3
 #| fig-height: 4
 #| fig-dpi: 200
 svg_clust_df <- data.frame(svg_cluster0 = seu_brain$svg_cluster0, 
                            svg_cluster1 = seu_brain$svg_cluster1) %>% 
                 bind_cols(GetTissueCoordinates(seu_brain))
-p2 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster0)) + 
+p3 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster0)) + 
       geom_point(size = 0.75, stroke = 0, alpha = 1) + 
       scale_y_continuous(transform = "reverse") + 
       scale_color_gradientn(colors = palette_heatmap) + 
@@ -230,7 +276,7 @@ p2 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster0)
            y = "Spatial 2", 
            color = "Module 0") + 
       theme_bayesVG(base.size = 8, spatial = TRUE)
-p3 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster1)) + 
+p4 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster1)) + 
       geom_point(size = 0.75, stroke = 0, alpha = 1) + 
       scale_y_continuous(transform = "reverse") + 
       scale_color_gradientn(colors = palette_heatmap) + 
@@ -238,13 +284,13 @@ p3 <- ggplot(svg_clust_df, aes(x = imagerow, y = imagecol, color = svg_cluster1)
            y = "Spatial 2", 
            color = "Module 1") + 
       theme_bayesVG(base.size = 8, spatial = TRUE)
-p4 <- (p2 / p3) + plot_layout(axes = "collect")
-p4
+p5 <- (p3 / p4) + plot_layout(axes = "collect")
+p5
 ```
 
 ```{r}
 ggsave("brain_svg_module_scatter.pdf", 
-       plot = p4, 
+       plot = p5, 
        device = "pdf", 
        path = "../pdf/",
        width = 3, 
