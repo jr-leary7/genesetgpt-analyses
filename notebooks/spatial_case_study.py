@@ -86,10 +86,11 @@ def _(mo):
 
 
 @app.cell
-def _(sc, warnings):
+def _(mo, sc, warnings):
     sc.settings.verbosity = 0
     warnings.simplefilter('ignore', category=UserWarning)
     warnings.simplefilter('ignore', category=FutureWarning)
+    mo._runtime.context.get_context().marimo_config['runtime']['output_max_bytes'] = 100_000_000
     return
 
 
@@ -135,7 +136,7 @@ def _(mo):
 
     ## Data preprocessing
 
-    First, we download a 10X Genomics Visium spatially-resolved transcriptomics (SRT) dataset, and make sure our `AnnData` object is set up correctly.
+    First, we download a 10X Genomics Visium spatially-resolved transcriptomics (SRT) dataset composed of a slice of the human cortex, then make sure our `AnnData` object is set up correctly.
     """)
     return
 
@@ -241,7 +242,7 @@ def _(ad_brain, sc):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Using the top 30 dimensions of the PCA embedding we estimate an SNN graph, then sort the graph into clusters via the Leiden algorithm.
+    Using the top 30 dimensions of the PCA embedding we estimate a KNN graph, then sort the graph into clusters via the Leiden algorithm.
     """)
     return
 
@@ -326,6 +327,7 @@ def _(ad_brain, plt, sc):
     )
     plt.gca().set_xlabel('UMAP 1')
     plt.gca().set_ylabel('UMAP 2')
+    plt.gca().spines[['right', 'top']].set_visible(False)
     plt.show()
     return
 
@@ -437,7 +439,7 @@ def _(NearestNeighbors, ig, np, pc_mtx, pd, top1k_svgs):
     adj_mtx = knn_graph.toarray()
     adj_mtx = np.maximum(adj_mtx, adj_mtx.T)
     g = ig.Graph.Adjacency((adj_mtx > 0).tolist(), mode=ig.ADJ_UNDIRECTED)
-    partition = g.community_leiden(resolution=0.02)
+    partition = g.community_leiden(resolution=0.01)
     cluster_df = pd.DataFrame({
         'gene': top1k_svgs, 
         'leiden': np.array(partition.membership)
@@ -469,11 +471,11 @@ def _(mo):
 
 @app.cell
 def _(cluster_df):
-    genes_clust0 = cluster_df.query('leiden == 0')['gene'].to_list()
-    genes_clust1 = cluster_df.query('leiden == 1')['gene'].to_list()
-    genes_clust2 = cluster_df.query('leiden == 2')['gene'].to_list()
-    genes_clust3 = cluster_df.query('leiden == 3')['gene'].to_list()
-    return genes_clust0, genes_clust1, genes_clust2, genes_clust3
+    module_gene_dict = {
+        cl: cluster_df.query(f'leiden == {cl}')['gene'].to_list()
+        for cl in cluster_df['leiden'].unique()
+    }
+    return (module_gene_dict,)
 
 
 @app.cell(hide_code=True)
@@ -485,39 +487,16 @@ def _(mo):
 
 
 @app.cell
-def _(ad_brain, genes_clust0, genes_clust1, genes_clust2, genes_clust3, sc):
-    sc.tl.score_genes(
-        ad_brain, 
-        gene_list=genes_clust0,
-        score_name='svg_cluster0', 
-        random_state=312, 
-        use_raw=False,
-        layer='norm'
-    )
-    sc.tl.score_genes(
-        ad_brain, 
-        gene_list=genes_clust1,
-        score_name='svg_cluster1', 
-        random_state=312, 
-        use_raw=False,
-        layer='norm'
-    )
-    sc.tl.score_genes(
-        ad_brain, 
-        gene_list=genes_clust2,
-        score_name='svg_cluster2', 
-        random_state=312, 
-        use_raw=False,
-        layer='norm'
-    )
-    sc.tl.score_genes(
-        ad_brain, 
-        gene_list=genes_clust3,
-        score_name='svg_cluster3', 
-        random_state=312, 
-        use_raw=False,
-        layer='norm'
-    )
+def _(ad_brain, module_gene_dict, sc):
+    for cl, genes in module_gene_dict.items():
+        sc.tl.score_genes(
+            ad_brain,
+            gene_list=genes,
+            score_name=f'svg_module{cl}',
+            random_state=312,
+            use_raw=False,
+            layer='norm'
+        )
     return
 
 
@@ -530,15 +509,13 @@ def _(mo):
 
 
 @app.cell
-def _(ad_brain, plt, sq):
+def _(ad_brain, cluster_df, plt, sq):
     sq.pl.spatial_scatter(
         ad_brain,
         shape='hex',
         size=1.5, 
-        color=[f'svg_cluster{c}' for c in [0, 1, 2, 3]],
-        img=False, 
-        figsize=(3, 3), 
-        ncols=2
+        color=[f'svg_module{c}' for c in list(set(cluster_df['leiden']))],
+        img=False
     )
     plt.show()
     return
@@ -561,6 +538,14 @@ def _(gpt):
     return all_hs_genes, mim_table
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next we subset our main gene ID table to just include our SVGs.
+    """)
+    return
+
+
 @app.cell
 def _(all_hs_genes):
     svg_gene_ids = all_hs_genes.query('hgnc_symbol in @top1k_svgs').copy()
@@ -568,18 +553,35 @@ def _(all_hs_genes):
     return (svg_gene_ids,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Moving on, we set up parallel `DataFrame` row processing.
+    """)
+    return
+
+
 @app.cell
 def _(pandarallel):
     pandarallel.initialize(
         progress_bar=True, 
-        nb_workers=3, 
+        nb_workers=2, 
         verbose=0
     )
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We loop over the rows of our SVG `DataFrame` in parallel in order to build the user prompt for each gene.
+    """)
+    return
+
+
 @app.cell
 def _(gpt, mim_table, os, svg_gene_ids):
+    mim_key = os.getenv('MIM_API_KEY')
     svg_gene_ids['prompt_user'] = svg_gene_ids.parallel_apply(
         lambda row: 
         gpt.build_user_prompt(
@@ -588,7 +590,7 @@ def _(gpt, mim_table, os, svg_gene_ids):
             entrez_id=row['entrez_id'], 
             entrez_email='j.leary@ufl.edu', 
             mim_mapping_table=mim_table, 
-            mim_api_key=os.getenv('MIM_API_KEY'), 
+            mim_api_key=mim_key, 
             include_aliases=True
         ), 
         axis=1
@@ -596,16 +598,40 @@ def _(gpt, mim_table, os, svg_gene_ids):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next, we write out our developer prompt, which helps determine the overall style and form of the LLM results.
+    """)
+    return
+
+
 @app.cell
 def _():
-    prompt_dev = 'You are an experienced computational biologist with advanced knowledge of transcriptomics analyses such as single-cell RNA-seq and spatial transcriptomics. When generating responses, you consider the statistical, computational, and biological angles of the question at hand. Your responses are detailed without being too overly technical. The system being studied is the human brain, and the data were assayed using 10X Genomics Visium V1.'
+    prompt_dev = 'You are an experienced computational biologist with advanced knowledge of transcriptomics analyses such as single-cell RNA-seq and spatially-resolved transcriptomics. When generating responses, you consider the statistical, computational, and biological angles of the question at hand. Your responses are detailed without being too overly technical. The system being studied is the healthy human cortex, and the data were assayed using 10X Genomics Visium V1.'
     return (prompt_dev,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Using our environment variable we set up at the beginning, we generate an OpenAI client.
+    """)
+    return
 
 
 @app.cell
 def _(OpenAI, os):
     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
     return (client,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Once again using parallel procesing to speed things up, we use GPT-5-mini to summarize each gene's functionality.
+    """)
+    return
 
 
 @app.cell
@@ -623,10 +649,26 @@ def _(ThreadPoolExecutor, client, gpt, partial, prompt_dev, svg_gene_ids):
     return llm_scores, llm_summaries
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next we add the gene-level LLM summaries and confidence scores to our SVG `DataFrame`.
+    """)
+    return
+
+
 @app.cell
 def _(llm_scores, llm_summaries, svg_gene_ids):
     svg_gene_ids['llm_summary'] = llm_summaries
     svg_gene_ids['llm_confidence_score'] = llm_scores
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Now to move on to summarizing the modules themselves - we start by defining a short `class` that will help the LLM format our results.
+    """)
     return
 
 
@@ -639,35 +681,31 @@ def _(BaseModel):
     return (GeneSetSummary,)
 
 
-@app.cell
-def _(cluster_df):
-    unique_svg_clusters = list(set(cluster_df['leiden']))
-    return (unique_svg_clusters,)
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    For the final summarization step, we write a loop that generates the paragraph-length summary, name, and confidence score for every SVG module. We also save the JSON of each module's model.
+    """)
+    return
 
 
 @app.cell
-def _(
-    GeneSetSummary,
-    client,
-    cluster_df,
-    prompt_dev,
-    svg_gene_ids,
-    unique_svg_clusters,
-):
-    cluster_summaries = []
-    cluster_names = []
-    cluster_scores = []
+def _(GeneSetSummary, client, cluster_df, prompt_dev, svg_gene_ids):
+    unique_svg_modules = list(set(cluster_df['leiden']))
+    module_summaries = []
+    module_names = []
+    module_scores = []
     model_jsons = []
-    for clust in unique_svg_clusters:
-        cluster_genes = cluster_df.query(f'leiden == {clust}')['gene'].to_list()
-        cluster_genes_str = ', '.join(cluster_genes)
-        cluster_gene_ids = svg_gene_ids.query('hgnc_symbol in @cluster_genes').copy()
-        cluster_user_prompts = cluster_gene_ids['prompt_user'].to_list()
-        cluster_llm_summaries_bulleted = '\n'.join(f'- {s}' for s in cluster_user_prompts)
+    for module in unique_svg_modules:
+        module_genes = cluster_df.query(f'leiden == {module}')['gene'].to_list()
+        module_genes_str = ', '.join(module_genes)
+        module_gene_ids = svg_gene_ids.query('hgnc_symbol in @module_genes').copy()
+        module_user_prompts = module_gene_ids['prompt_user'].to_list()
+        module_llm_summaries_bulleted = '\n'.join(f'- {s}' for s in module_user_prompts)
         summary_prompt = f"""
         Below are brief, independent descriptions of genes in a set:
 
-        {cluster_llm_summaries_bulleted}
+        {module_llm_summaries_bulleted}
 
         Please write a concise (5–7 sentence) paragraph summarizing the common function(s) of this gene set. In addition, please provide a robust, 3-decimal score ranging from 0-1 estimating how confident you are in your overall annotation. Lastly, provide a short 2-5 word name for the gene set based on your annotation.
         """
@@ -679,28 +717,44 @@ def _(
             ], 
             text_format=GeneSetSummary
         )
-        cluster_summaries.append(summary_response.output_parsed.summary)
-        cluster_names.append(summary_response.output_parsed.name)
-        cluster_scores.append(summary_response.output_parsed.confidence)
+        module_summaries.append(summary_response.output_parsed.summary)
+        module_names.append(summary_response.output_parsed.name)
+        module_scores.append(summary_response.output_parsed.confidence)
         model_jsons.append(summary_response.model_dump_json())
-    return cluster_names, cluster_scores, cluster_summaries, model_jsons
+    return (
+        model_jsons,
+        module_names,
+        module_scores,
+        module_summaries,
+        unique_svg_modules,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We coerce all the results to a single, small `DataFrame`.
+    """)
+    return
 
 
 @app.cell
-def _(
-    cluster_names,
-    cluster_scores,
-    cluster_summaries,
-    pd,
-    unique_svg_clusters,
-):
+def _(module_names, module_scores, module_summaries, pd, unique_svg_modules):
     final_summary_df = pd.DataFrame({
-        'cluster': unique_svg_clusters, 
-        'summary': cluster_summaries, 
-        'name': cluster_names, 
-        'score': cluster_scores
+        'module': unique_svg_modules, 
+        'summary': module_summaries, 
+        'name': module_names, 
+        'score': module_scores
     })
     return (final_summary_df,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Finaly, we can check out the LLM-generated results for each module:
+    """)
+    return
 
 
 @app.cell
@@ -727,9 +781,11 @@ def _(final_summary_df, mo):
     return
 
 
-@app.cell
-def _(final_summary_df, mo):
-    mo.md(final_summary_df['summary'].to_list()[3])
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Save data
+    """)
     return
 
 
@@ -757,7 +813,11 @@ def _(final_summary_df):
 @app.cell
 def _(json, model_jsons):
     with open('data/human-brain-spatial/model_jsons.json', 'w') as f:
-        json.dump(model_jsons, f, indent=2)
+        json.dump(
+            model_jsons, 
+            fp=f, 
+            indent=2
+        )
     return
 
 
