@@ -75,26 +75,51 @@ def _():
     )
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Setup
+
+    Here we set some notebook-wide options related to verbosity and warnings.
+    """)
+    return
+
+
 @app.cell
-def _(matplotlib, sc, warnings):
+def _(sc, warnings):
     sc.settings.verbosity = 0
-    matplotlib.style.use('default')
     warnings.simplefilter('ignore', category=UserWarning)
     warnings.simplefilter('ignore', category=FutureWarning)
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next, we enable some `matplotlib` settings to make our plots look nice.
+    """)
+    return
+
+
 @app.cell
-def _(plt):
+def _(matplotlib, plt):
+    matplotlib.style.use('default')
     plt.rcParams.update({
-        'font.size': 8, 
+        'font.size': 10, 
         'axes.linewidth': 1.5, 
         'legend.frameon': False, 
         'figure.dpi': 320, 
         'font.family': 'Arial'
     })
-    palette_leiden = plt.colormaps['Accent']
-    return (palette_leiden,)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Finally, we load our environment variables from our dotfile.
+    """)
+    return
 
 
 @app.cell
@@ -103,23 +128,51 @@ def _(load_dotenv):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Analysis
+
+    ## Data preprocessing
+
+    First, we download a 10X Genomics Visium spatially-resolved transcriptomics (SRT) dataset, and make sure our `AnnData` object is set up correctly.
+    """)
+    return
+
+
 @app.cell
 def _(sq):
     ad_brain = sq.datasets.visium(sample_id='V1_Human_Brain_Section_1')
     ad_brain.layers['counts'] = ad_brain.X.copy()
-    ad_brain.var['gene'] = ad_brain.var.index.to_list()
     ad_brain.var_names_make_unique()
+    ad_brain.var['gene'] = ad_brain.var.index.to_list()
     ad_brain.raw = ad_brain
     return (ad_brain,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We remove the directory used to cache the `.h5ad` file so as to prevent it from clogging up our repository.
+    """)
+    return
+
+
 @app.cell
 def _(os, shutil):
-    if os.path.isdir('data/'):
+    if os.path.isdir('data/V1_Human_Brain_Section_1/'):
         try: 
-            shutil.rmtree('data/')
+            shutil.rmtree('data/V1_Human_Brain_Section_1/')
         except Exception as e:
-            print('Error removing the data/ directory.')
+            print('Error removing the data/V1_Human_Brain_Section_1/ directory.')
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We next perform basic spot- and gene-level QC.
+    """)
     return
 
 
@@ -127,6 +180,14 @@ def _(os, shutil):
 def _(ad_brain, sc):
     sc.pp.filter_cells(ad_brain, min_counts=1000)
     sc.pp.filter_genes(ad_brain, min_cells=5)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Moving on, we select 3,000 HVGs based on the raw counts.
+    """)
     return
 
 
@@ -141,11 +202,27 @@ def _(ad_brain, sc):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We then depth-normalize and log1p-transform the raw counts, and save the resulting matrix in a new layer in our `AnnData` object.
+    """)
+    return
+
+
 @app.cell
 def _(ad_brain, sc):
     ad_brain.X = sc.pp.normalize_total(ad_brain, target_sum=1e4, inplace=False)['X']
     sc.pp.log1p(ad_brain)
     ad_brain.layers['norm'] = ad_brain.X.copy()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Prior to performing initial dimension reduction with PCA, we scale the normalized counts such that they have zero mean and unit variance.
+    """)
     return
 
 
@@ -158,6 +235,14 @@ def _(ad_brain, sc):
         random_state=312, 
         mask_var='highly_variable'
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Using the top 30 dimensions of the PCA embedding we estimate an SNN graph, then sort the graph into clusters via the Leiden algorithm.
+    """)
     return
 
 
@@ -181,21 +266,35 @@ def _(ad_brain, sc):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We plot the Leiden clustering on our spatial coordinates:
+    """)
+    return
+
+
 @app.cell
-def _(ad_brain, plt, sc):
-    sc.pl.embedding(
+def _(ad_brain, plt, sq):
+    sq.pl.spatial_scatter(
         ad_brain, 
-        basis='pca', 
-        color='leiden',
-        title='Leiden',
-        frameon=True, 
-        size=30, 
-        alpha=0.75,
-        show=False
+        shape='hex', 
+        color='leiden', 
+        title='Leiden', 
+        img=False, 
+        size=1.5
     )
-    plt.gca().set_xlabel('PC 1')
-    plt.gca().set_ylabel('PC 2')
+    plt.gca().set_xlabel('Spatial 1')
+    plt.gca().set_xlabel('Spatial 2')
     plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next, we further reduce dimensionality via UMAP.
+    """)
     return
 
 
@@ -205,152 +304,51 @@ def _(ad_brain, sc):
     return
 
 
-@app.cell
-def _(ad_brain):
-    ad_brain.layers
-    return
-
-
-@app.cell
-def _(ad_brain, np, palette_leiden, pd, plt):
-    _plot_df = pd.DataFrame({
-        'umap1': ad_brain.obsm['X_umap'][:,0], 
-        'umap2': ad_brain.obsm['X_umap'][:,1],
-        'leiden': ad_brain.obs['leiden']
-    })
-    _clusters = np.sort(_plot_df['leiden'].unique().astype(int))
-    _cluster_to_color = {
-        cl: palette_leiden(i / max(1, len(_clusters) - 1))
-        for i, cl in enumerate(_clusters)
-    }
-    _plot_df['color'] = _plot_df['leiden'].astype(int).map(_cluster_to_color)
-    _fig, _ax = plt.subplots(figsize=(4.0, 3.0))
-    _fig.subplots_adjust(left=0.01, right=0.79, bottom=0.01, top=0.99)
-    _ax.scatter(
-        _plot_df['umap1'],
-        _plot_df['umap2'],
-        c=_plot_df['color'], 
-        s=10,
-        linewidths=0.0, 
-        alpha=0.8
-    )
-    _ax.set_xlabel('UMAP 1')
-    _ax.set_ylabel('UMAP 2')
-    _ax.set_xticks([])
-    _ax.set_yticks([])
-    _ax.set_yticklabels([])
-    _ax.set_xticklabels([])
-    _ax.spines[['right', 'top']].set_visible(False)
-    for _spine in _ax.spines.values():
-        _spine.set_linewidth(1.5)
-    plt.tight_layout()
-    plt.savefig('figures/brain_umap_scatter.png', bbox_inches='tight')
-    plt.show()
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Plotting the UMAP embedding shows distinct clusters:
+    """)
     return
 
 
 @app.cell
 def _(ad_brain, plt, sc):
-    with plt.rc_context({'figure.figsize': (4, 3)}):
-        sc.pl.embedding(
-            ad_brain, 
-            basis='umap', 
-            color='leiden',
-            title='',
-            frameon=True, 
-            size=30, 
-            alpha=0.75,
-            show=False
-        )
-        plt.gca().spines[['right', 'top']].set_visible(False)
-        plt.gca().set_xlabel('UMAP 1')
-        plt.gca().set_ylabel('UMAP 2')
-        plt.gca().get_legend().remove()
-        plt.gcf().legend(
-            title='Leiden', 
-            loc='outside right', 
-            borderaxespad=0.75
-        )
-        plt.savefig('figures/brain_umap_scatter.png', bbox_inches='tight')
-        plt.show()
-    return
-
-
-@app.cell
-def _(ad_brain, plt, sq):
-    with plt.rc_context({'figure.figsize': (4, 3.33), 'axes.linewidth': 1.5}):
-        sq.pl.spatial_scatter(
-            ad_brain, 
-            shape='hex',
-            color='leiden', 
-            title='', 
-            img=False, 
-            size=1.5
-        )
-        plt.gca().set_xlabel('Spatial 1')
-        plt.gca().set_ylabel('Spatial 2')
-        plt.gca().get_legend().remove()
-        plt.gcf().legend(
-            title='Leiden', 
-            loc='outside right', 
-            borderaxespad=1
-        )
-        plt.savefig('figures/brain_spatial_scatter.png', bbox_inches='tight')
-        plt.show()
-    return
-
-
-@app.cell
-def _(ad_brain, np, palette_leiden, pd, plt):
-    _plot_df = pd.DataFrame({
-        'x': ad_brain.obsm['spatial'][:,0], 
-        'y': ad_brain.obsm['spatial'][:,1],
-        'leiden': ad_brain.obs['leiden']
-    })
-    _clusters = np.sort(_plot_df['leiden'].unique().astype(int))
-    _cluster_to_color = {
-        cl: palette_leiden(i / max(1, len(_clusters) - 1))
-        for i, cl in enumerate(_clusters)
-    }
-    _plot_df['color'] = _plot_df['leiden'].astype(int).map(_cluster_to_color)
-    _fig, _ax = plt.subplots(figsize=(3.3, 3.0))
-    _fig.subplots_adjust(left=0.01, right=0.79, bottom=0.01, top=0.99)
-    _ax.scatter(
-        _plot_df['x'],
-        _plot_df['y'],
-        c=_plot_df['color'], 
-        s=8,
-        linewidths=0.0, 
-        marker='H'
-    )
-    _ax.invert_yaxis()
-    _ax.set_xlabel('Spatial 1')
-    _ax.set_ylabel('Spatial 2')
-    _ax.set_xticks([])
-    _ax.set_yticks([])
-    _ax.set_yticklabels([])
-    _ax.set_xticklabels([])
-    for spine in _ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(1.5)
-    for cl in _clusters:
-        _ax.scatter([], [], color=_cluster_to_color[cl], label=cl, s=30)
-    leg = _ax.legend(
+    sc.pl.embedding(
+        ad_brain, 
+        basis='umap', 
+        color='leiden', 
         title='Leiden',
-        bbox_to_anchor=(1, 0.65),
-        loc='upper left',
-        frameon=False,
-        borderpad=0.2
+        frameon=True, 
+        size=30, 
+        alpha=0.8, 
+        show=False
     )
-    # plt.tight_layout()
-    plt.savefig('figures/brain_spatial_scatter.png', bbox_inches='tight')
+    plt.gca().set_xlabel('UMAP 1')
+    plt.gca().set_ylabel('UMAP 2')
     plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next, we estimate a set of spatial neighbors for each spot.
+    """)
     return
 
 
 @app.cell
 def _(ad_brain, sq):
     sq.gr.spatial_neighbors(ad_brain, n_neighs=10)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We extract a `list` of the top 3,000 HVGs, then test them for spatial structure using a Moran's I test.
+    """)
     return
 
 
@@ -370,6 +368,14 @@ def _(ad_brain, sq):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    After extracting the table of test results, we remove genes that exhibit no statistically significant spatial dependence, classify the top 1,000 remaining genes as SVGs, and add a flag for spatial variability to our `AnnData` object.
+    """)
+    return
+
+
 @app.cell
 def _(ad_brain):
     moran_df = ad_brain.uns['moranI'].copy()
@@ -385,12 +391,28 @@ def _(ad_brain):
     return (top1k_svgs,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Moving on, we extract a matrix of normalized counts with genes as rows and spots as columns, then scale it.
+    """)
+    return
+
+
 @app.cell
 def _(StandardScaler, ad_brain, top1k_svgs):
     expr_mtx = ad_brain[:, top1k_svgs].layers['norm'].T.toarray()
     scaler = StandardScaler(with_mean=True, with_std=True)
     expr_mtx_scaled = scaler.fit_transform(expr_mtx)
     return (expr_mtx_scaled,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We then reduce dimensionality of the scaled SVG expression matrix to 30 dimensions via PCA.
+    """)
+    return
 
 
 @app.cell
@@ -400,24 +422,49 @@ def _(PCA, expr_mtx_scaled):
     return (pc_mtx,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We estimate a KNN graph in PCA space, convert it to an adjacency matrix, and utilize the Leiden algorithm to sort the graph into clusters of SVGs with similar patterns. Lastly, we create a `DataFrame` with the clustering results.
+    """)
+    return
+
+
 @app.cell
-def _(NearestNeighbors, ig, np, pc_mtx):
+def _(NearestNeighbors, ig, np, pc_mtx, pd, top1k_svgs):
     nns = NearestNeighbors(n_neighbors=20, metric='cosine').fit(pc_mtx)
     knn_graph = nns.kneighbors_graph(pc_mtx, mode='connectivity')
     adj_mtx = knn_graph.toarray()
     adj_mtx = np.maximum(adj_mtx, adj_mtx.T)
     g = ig.Graph.Adjacency((adj_mtx > 0).tolist(), mode=ig.ADJ_UNDIRECTED)
     partition = g.community_leiden(resolution=0.02)
-    return (partition,)
-
-
-@app.cell
-def _(np, partition, pd, top1k_svgs):
     cluster_df = pd.DataFrame({
         'gene': top1k_svgs, 
         'leiden': np.array(partition.membership)
     })
     return (cluster_df,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Let's take a look at how many SVGs belong to each cluster (or module):
+    """)
+    return
+
+
+@app.cell
+def _(cluster_df):
+    cluster_df['leiden'].value_counts()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next, we create a `list` containing the assigned SVGs for each module.
+    """)
+    return
 
 
 @app.cell
@@ -429,6 +476,14 @@ def _(cluster_df):
     return genes_clust0, genes_clust1, genes_clust2, genes_clust3
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We then score each module using the normalized counts, and add the per-spot scores to our `AnnData` object.
+    """)
+    return
+
+
 @app.cell
 def _(ad_brain, genes_clust0, genes_clust1, genes_clust2, genes_clust3, sc):
     sc.tl.score_genes(
@@ -436,55 +491,66 @@ def _(ad_brain, genes_clust0, genes_clust1, genes_clust2, genes_clust3, sc):
         gene_list=genes_clust0,
         score_name='svg_cluster0', 
         random_state=312, 
-        use_raw=False
+        use_raw=False,
+        layer='norm'
     )
     sc.tl.score_genes(
         ad_brain, 
         gene_list=genes_clust1,
         score_name='svg_cluster1', 
         random_state=312, 
-        use_raw=False
+        use_raw=False,
+        layer='norm'
     )
     sc.tl.score_genes(
         ad_brain, 
         gene_list=genes_clust2,
         score_name='svg_cluster2', 
         random_state=312, 
-        use_raw=False
+        use_raw=False,
+        layer='norm'
     )
     sc.tl.score_genes(
         ad_brain, 
         gene_list=genes_clust3,
         score_name='svg_cluster3', 
         random_state=312, 
-        use_raw=False
+        use_raw=False,
+        layer='norm'
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We plot the resulting module scores below:
+    """)
     return
 
 
 @app.cell
 def _(ad_brain, plt, sq):
-    svg_clusters = [0, 1, 2, 3]
-    plot_titles = [f'SVG Cluster {c}' for c in svg_clusters]
-    fig, axes = plt.subplots(
-        nrows=1, 
-        ncols=4, 
-        figsize = (15, 5), 
-        sharex=True, 
-        sharey=True
+    sq.pl.spatial_scatter(
+        ad_brain,
+        shape='hex',
+        size=1.5, 
+        color=[f'svg_cluster{c}' for c in [0, 1, 2, 3]],
+        img=False, 
+        figsize=(3, 3), 
+        ncols=2
     )
-    for ax, c, title in zip(axes, svg_clusters, plot_titles):
-        sq.pl.spatial_scatter(
-            ad_brain,
-            shape='hex',
-            color=f'svg_cluster{c}',
-            title=title,
-            ax=ax
-        )
-        ax.set_xlabel('Spatial 1')
-        ax.set_ylabel('Spatial 2')
-    fig.tight_layout()
     plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## AI module summarization
+
+    Now we're ready to move on to the interesting bit - summarizing our SVG modules functionally using LLMs. We start by reading in some datasets we'll need to perform the analysis.
+    """)
     return
 
 
@@ -640,6 +706,12 @@ def _(
 @app.cell
 def _(final_summary_df, mo):
     mo.md(final_summary_df['summary'].to_list()[0])
+    return
+
+
+@app.cell
+def _(final_summary_df):
+    final_summary_df['name']
     return
 
 
