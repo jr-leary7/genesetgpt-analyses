@@ -1,11 +1,14 @@
 import marimo
 
-__generated_with = "0.18.1"
+__generated_with = "0.23.1"
 app = marimo.App(width="medium")
+
+with app.setup(hide_code=True):
+    import marimo as mo
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Libraries
 
@@ -29,7 +32,6 @@ def _():
     import igraph as ig
     import scanpy as sc
     import pandas as pd
-    import marimo as mo
     import session_info
     import squidpy as sq
     import anndata as ad
@@ -46,6 +48,7 @@ def _():
     from sklearn.neighbors import NearestNeighbors
     from sklearn.preprocessing import StandardScaler
     from concurrent.futures import ThreadPoolExecutor
+
     return (
         BaseModel,
         NearestNeighbors,
@@ -60,7 +63,6 @@ def _():
         json,
         load_dotenv,
         matplotlib,
-        mo,
         np,
         os,
         pandarallel,
@@ -76,7 +78,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Setup
 
@@ -86,16 +88,15 @@ def _(mo):
 
 
 @app.cell
-def _(mo, sc, warnings):
+def _(sc, warnings):
     sc.settings.verbosity = 0
-    warnings.simplefilter('ignore', category=UserWarning)
-    warnings.simplefilter('ignore', category=FutureWarning)
+    warnings.simplefilter(action='ignore')
     mo._runtime.context.get_context().marimo_config['runtime']['output_max_bytes'] = 100_000_000
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next, we enable some `matplotlib` settings to make our plots look nice.
     """)
@@ -106,7 +107,7 @@ def _(mo):
 def _(matplotlib, plt):
     matplotlib.style.use('default')
     plt.rcParams.update({
-        'font.size': 10, 
+        'font.size': 12, 
         'axes.linewidth': 1.5, 
         'legend.frameon': False, 
         'figure.dpi': 320, 
@@ -116,7 +117,7 @@ def _(matplotlib, plt):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Finally, we load our environment variables from our dotfile.
     """)
@@ -125,12 +126,12 @@ def _(mo):
 
 @app.cell
 def _(load_dotenv):
-    load_dotenv(dotenv_path='.env')
+    load_dotenv()
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Analysis
 
@@ -152,7 +153,7 @@ def _(sq):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We remove the directory used to cache the `.h5ad` file so as to prevent it from clogging up our repository.
     """)
@@ -170,7 +171,7 @@ def _(os, shutil):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We next perform basic spot- and gene-level QC.
     """)
@@ -179,13 +180,13 @@ def _(mo):
 
 @app.cell
 def _(ad_brain, sc):
-    sc.pp.filter_cells(ad_brain, min_counts=1000)
-    sc.pp.filter_genes(ad_brain, min_cells=5)
+    sc.pp.filter_cells(data=ad_brain, min_counts=1000)
+    sc.pp.filter_genes(data=ad_brain, min_cells=5)
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Moving on, we select 3,000 HVGs based on the raw counts.
     """)
@@ -195,7 +196,7 @@ def _(mo):
 @app.cell
 def _(ad_brain, sc):
     sc.pp.highly_variable_genes(
-        ad_brain, 
+        adata=ad_brain, 
         n_top_genes=3000, 
         flavor='seurat_v3', 
         subset=False
@@ -204,7 +205,7 @@ def _(ad_brain, sc):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We then depth-normalize and log1p-transform the raw counts, and save the resulting matrix in a new layer in our `AnnData` object.
     """)
@@ -213,14 +214,14 @@ def _(mo):
 
 @app.cell
 def _(ad_brain, sc):
-    ad_brain.X = sc.pp.normalize_total(ad_brain, target_sum=1e4, inplace=False)['X']
+    ad_brain.X = sc.pp.normalize_total(adata=ad_brain, target_sum=1e4, inplace=False)['X']
     sc.pp.log1p(ad_brain)
     ad_brain.layers['norm'] = ad_brain.X.copy()
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Prior to performing initial dimension reduction with PCA, we scale the normalized counts such that they have zero mean and unit variance.
     """)
@@ -230,8 +231,8 @@ def _(mo):
 @app.cell
 def _(ad_brain, sc):
     sc.pp.scale(ad_brain)
-    sc.tl.pca(
-        ad_brain, 
+    sc.pp.pca(
+        data=ad_brain, 
         n_comps=50, 
         random_state=312, 
         mask_var='highly_variable'
@@ -240,7 +241,7 @@ def _(ad_brain, sc):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Using the top 30 dimensions of the PCA embedding we estimate a KNN graph, then sort the graph into clusters via the Leiden algorithm.
     """)
@@ -250,7 +251,7 @@ def _(mo):
 @app.cell
 def _(ad_brain, sc):
     sc.pp.neighbors(
-        ad_brain, 
+        adata=ad_brain, 
         n_neighbors=20,
         n_pcs=30,  
         use_rep='X_pca', 
@@ -258,7 +259,7 @@ def _(ad_brain, sc):
         random_state=312
     )
     sc.tl.leiden(
-        ad_brain, 
+        adata=ad_brain, 
         resolution=0.5, 
         flavor='igraph',
         n_iterations=2, 
@@ -268,7 +269,7 @@ def _(ad_brain, sc):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We plot the Leiden clustering on our spatial coordinates:
     """)
@@ -278,7 +279,7 @@ def _(mo):
 @app.cell
 def _(ad_brain, plt, sq):
     sq.pl.spatial_scatter(
-        ad_brain, 
+        adata=ad_brain, 
         shape='hex', 
         color='leiden', 
         title='Leiden', 
@@ -292,7 +293,7 @@ def _(ad_brain, plt, sq):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next, we further reduce dimensionality via UMAP.
     """)
@@ -301,12 +302,12 @@ def _(mo):
 
 @app.cell
 def _(ad_brain, sc):
-    sc.tl.umap(ad_brain, random_state=312)
+    sc.tl.umap(adata=ad_brain, random_state=312)
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Plotting the UMAP embedding shows distinct clusters:
     """)
@@ -316,7 +317,7 @@ def _(mo):
 @app.cell
 def _(ad_brain, plt, sc):
     sc.pl.embedding(
-        ad_brain, 
+        adata=ad_brain, 
         basis='umap', 
         color='leiden', 
         title='Leiden',
@@ -333,7 +334,7 @@ def _(ad_brain, plt, sc):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next, we estimate a set of spatial neighbors for each spot.
     """)
@@ -342,12 +343,12 @@ def _(mo):
 
 @app.cell
 def _(ad_brain, sq):
-    sq.gr.spatial_neighbors(ad_brain, n_neighs=10)
+    sq.gr.spatial_neighbors(adata=ad_brain, n_neighs=10)
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We extract a `list` of the top 3,000 HVGs, then test them for spatial structure using a Moran's I test.
     """)
@@ -358,7 +359,7 @@ def _(mo):
 def _(ad_brain, sq):
     top3k_hvgs = ad_brain.var[ad_brain.var['highly_variable']]['gene'].to_list()
     sq.gr.spatial_autocorr(
-        ad_brain,
+        adata=ad_brain,
         mode='moran',
         genes=top3k_hvgs, 
         use_raw=False, 
@@ -371,7 +372,7 @@ def _(ad_brain, sq):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     After extracting the table of test results, we remove genes that exhibit no statistically significant spatial dependence, classify the top 1,000 remaining genes as SVGs, and add a flag for spatial variability to our `AnnData` object.
     """)
@@ -394,7 +395,7 @@ def _(ad_brain):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Moving on, we extract a matrix of normalized counts with genes as rows and spots as columns, then scale it.
     """)
@@ -405,12 +406,12 @@ def _(mo):
 def _(StandardScaler, ad_brain, top1k_svgs):
     expr_mtx = ad_brain[:, top1k_svgs].layers['norm'].T.toarray()
     scaler = StandardScaler(with_mean=True, with_std=True)
-    expr_mtx_scaled = scaler.fit_transform(expr_mtx)
+    expr_mtx_scaled = scaler.fit_transform(X=expr_mtx)
     return (expr_mtx_scaled,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We then reduce dimensionality of the scaled SVG expression matrix to 30 dimensions via PCA.
     """)
@@ -420,12 +421,12 @@ def _(mo):
 @app.cell
 def _(PCA, expr_mtx_scaled):
     pca = PCA(n_components=30, random_state=312)
-    pc_mtx = pca.fit_transform(expr_mtx_scaled)
+    pc_mtx = pca.fit_transform(X=expr_mtx_scaled)
     return (pc_mtx,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We estimate a KNN graph in PCA space, convert it to an adjacency matrix, and utilize the Leiden algorithm to sort the graph into clusters of SVGs with similar patterns. Lastly, we create a `DataFrame` with the clustering results.
     """)
@@ -434,8 +435,8 @@ def _(mo):
 
 @app.cell
 def _(NearestNeighbors, ig, np, pc_mtx, pd, top1k_svgs):
-    nns = NearestNeighbors(n_neighbors=20, metric='cosine').fit(pc_mtx)
-    knn_graph = nns.kneighbors_graph(pc_mtx, mode='connectivity')
+    nns = NearestNeighbors(n_neighbors=20, metric='cosine').fit(X=pc_mtx)
+    knn_graph = nns.kneighbors_graph(X=pc_mtx, mode='connectivity')
     adj_mtx = knn_graph.toarray()
     adj_mtx = np.maximum(adj_mtx, adj_mtx.T)
     g = ig.Graph.Adjacency((adj_mtx > 0).tolist(), mode=ig.ADJ_UNDIRECTED)
@@ -448,7 +449,7 @@ def _(NearestNeighbors, ig, np, pc_mtx, pd, top1k_svgs):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Let's take a look at how many SVGs belong to each cluster (or module):
     """)
@@ -462,7 +463,7 @@ def _(cluster_df):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next, we create a `list` containing the assigned SVGs for each module.
     """)
@@ -479,7 +480,7 @@ def _(cluster_df):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We then score each module using the normalized counts, and add the per-spot scores to our `AnnData` object.
     """)
@@ -490,7 +491,7 @@ def _(mo):
 def _(ad_brain, module_gene_dict, sc):
     for cl, genes in module_gene_dict.items():
         sc.tl.score_genes(
-            ad_brain,
+            adata=ad_brain,
             gene_list=genes,
             score_name=f'svg_module{cl}',
             random_state=312,
@@ -501,7 +502,7 @@ def _(ad_brain, module_gene_dict, sc):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We plot the resulting module scores below:
     """)
@@ -511,7 +512,7 @@ def _(mo):
 @app.cell
 def _(ad_brain, cluster_df, plt, sq):
     sq.pl.spatial_scatter(
-        ad_brain,
+        adata=ad_brain,
         shape='hex',
         size=1.5, 
         color=[f'svg_module{c}' for c in list(set(cluster_df['leiden']))],
@@ -522,7 +523,7 @@ def _(ad_brain, cluster_df, plt, sq):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## AI module summarization
 
@@ -539,7 +540,7 @@ def _(gpt):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next we subset our main gene ID table to just include our SVGs.
     """)
@@ -554,7 +555,7 @@ def _(all_hs_genes):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Moving on, we set up parallel `DataFrame` row processing.
     """)
@@ -572,7 +573,7 @@ def _(pandarallel):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We loop over the rows of our SVG `DataFrame` in parallel in order to build the user prompt for each gene.
     """)
@@ -599,7 +600,7 @@ def _(gpt, mim_table, os, svg_gene_ids):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next, we write out our developer prompt, which helps determine the overall style and form of the LLM results.
     """)
@@ -613,7 +614,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Using our environment variable we set up at the beginning, we generate an OpenAI client.
     """)
@@ -627,7 +628,7 @@ def _(OpenAI, os):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Once again using parallel procesing to speed things up, we use GPT-5-mini to summarize each gene's functionality.
     """)
@@ -650,7 +651,7 @@ def _(ThreadPoolExecutor, client, gpt, partial, prompt_dev, svg_gene_ids):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Next we add the gene-level LLM summaries and confidence scores to our SVG `DataFrame`.
     """)
@@ -665,7 +666,7 @@ def _(llm_scores, llm_summaries, svg_gene_ids):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Now to move on to summarizing the modules themselves - we start by defining a short `class` that will help the LLM format our results.
     """)
@@ -678,11 +679,12 @@ def _(BaseModel):
         summary: str
         name: str
         confidence: float
+
     return (GeneSetSummary,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     For the final summarization step, we write a loop that generates the paragraph-length summary, name, and confidence score for every SVG module. We also save the JSON of each module's model.
     """)
@@ -731,7 +733,7 @@ def _(GeneSetSummary, client, cluster_df, prompt_dev, svg_gene_ids):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     We coerce all the results to a single, small `DataFrame`.
     """)
@@ -750,7 +752,7 @@ def _(module_names, module_scores, module_summaries, pd, unique_svg_modules):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     Finaly, we can check out the LLM-generated results for each module:
     """)
@@ -758,7 +760,7 @@ def _(mo):
 
 
 @app.cell
-def _(final_summary_df, mo):
+def _(final_summary_df):
     mo.md(final_summary_df['summary'].to_list()[0])
     return
 
@@ -770,19 +772,19 @@ def _(final_summary_df):
 
 
 @app.cell
-def _(final_summary_df, mo):
+def _(final_summary_df):
     mo.md(final_summary_df['summary'].to_list()[1])
     return
 
 
 @app.cell
-def _(final_summary_df, mo):
+def _(final_summary_df):
     mo.md(final_summary_df['summary'].to_list()[2])
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Save data
     """)
@@ -822,7 +824,7 @@ def _(json, model_jsons):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Session information
     """)
@@ -831,7 +833,7 @@ def _(mo):
 
 @app.cell
 def _(session_info):
-    session_info.show()
+    session_info.show(cpu=True)
     return
 
 

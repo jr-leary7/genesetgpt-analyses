@@ -47,6 +47,9 @@ def _():
     from concurrent.futures import ThreadPoolExecutor
 
     return (
+        BaseModel,
+        OpenAI,
+        ThreadPoolExecutor,
         cr,
         gc,
         gpt,
@@ -54,6 +57,7 @@ def _():
         matplotlib,
         os,
         pandarallel,
+        partial,
         pd,
         plt,
         sc,
@@ -625,26 +629,44 @@ def _(driver_gene_ids, gpt, mim_table, os):
 @app.cell
 def _():
     prompt_dev = 'You are an experienced computational biologist with advanced knowledge of transcriptomics analyses such as single-cell RNA-seq and spatially-resolved transcriptomics. When generating responses, you consider the statistical, computational, and biological angles of the question at hand. Your responses are detailed without being too overly technical. The scRNA-seq dataset being studied is composed of early human hematopoiesis (CD34+ bone marrow cells) assayed using 10X Chromium.'
+    return (prompt_dev,)
+
+
+@app.cell
+def _(OpenAI, os):
+    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+    return (client,)
+
+
+@app.cell
+def _(ThreadPoolExecutor, client, driver_gene_ids, gpt, partial, prompt_dev):
+    summarize_one = partial(
+        gpt.summarize_genes,
+        prompt_dev=prompt_dev,
+        openai_client=client,
+        openai_model='gpt-5-mini'
+    )
+    user_prompts = driver_gene_ids['prompt_user'].to_list()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(summarize_one, user_prompts))
+    llm_summaries, llm_scores = zip(*results)
+    return llm_scores, llm_summaries
+
+
+@app.cell
+def _(driver_gene_ids, llm_scores, llm_summaries):
+    driver_gene_ids['llm_summary'] = llm_summaries
+    driver_gene_ids['llm_confidence_score'] = llm_scores
     return
 
 
 @app.cell
-def _():
-    return
+def _(BaseModel):
+    class GeneSetSummary(BaseModel):
+        summary: str
+        name: str
+        confidence: float
 
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
     return
 
 
