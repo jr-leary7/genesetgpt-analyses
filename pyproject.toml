@@ -7,10 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.86",
     "cellrank>=2.0.7",
+    "curl-cffi>=0.15.0",
     "dotenv>=0.9.9",
     "marimo>=0.18.1",
     "openai>=2.8.1",
     "pandarallel>=1.6.5",
+    "polars>=1.36.1",
     "pybiomart>=0.2.0",
     "python-igraph>=1.0.0",
     "scanpy>=1.11.5",
